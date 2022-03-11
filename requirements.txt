@@ -1,0 +1,9 @@
+addict
+torchvision
+torch-fidelity
+tqdm
+pillow
+numpy
+opencv-python
+yapf
+matplotlib
