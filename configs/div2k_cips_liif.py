@@ -58,3 +58,5 @@ discriminator = dict(
     type='UNetSN',
     num_in_ch=3
 )
+
+discriminator_gradient_norm = False
