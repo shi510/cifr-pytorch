@@ -47,8 +47,11 @@ def train(args, config):
     model = build_architecture(config.model).cuda()
     encoder = build_architecture(config.encoder).cuda()
     disc = build_discriminator(config.discriminator).cuda()
-    config.optimizer.update({'params': model.parameters()})
-    optim_m = build_optimizer(config.optimizer)
+    config.optimizer.update({'params': [
+        {'params': encoder.parameters()},
+        {'params': model.parameters()}
+        ]})
+    optim_g = build_optimizer(config.optimizer)
     config.optimizer.update({'params': disc.parameters()})
     optim_d = build_optimizer(config.optimizer)
 
@@ -94,12 +97,14 @@ def train(args, config):
     for epoch in epoch_pbar:
         iter_pbar = tqdm(enumerate(zip(train_loader, train_loader_gan)), total=total_iter, leave=False, position=1)
         for n, (batch, batch_gan) in iter_pbar:
+            encoder.train()
             model.train()
             disc.train()
 
             #
             # Discriminator Step
             #
+            requires_grad(encoder, False)
             requires_grad(model, False)
             requires_grad(disc, True)
             optim_d.zero_grad()
@@ -131,9 +136,10 @@ def train(args, config):
             #
             # Generator Step
             #
+            requires_grad(encoder, True)
             requires_grad(model, True)
             # requires_grad(disc, False)
-            optim_m.zero_grad()
+            optim_g.zero_grad()
 
             feature = encoder(lr)
             fake = batched_predict(model, feature, coord, cell, 1024)
@@ -163,14 +169,18 @@ def train(args, config):
             loss_g = loss_g_l1 + loss_rel_g + hr_l1_loss + ctx_loss
 
             loss_g.backward()
-            optim_m.step()
+            optim_g.step()
 
             loss_str = f'd_loss: {loss_d:.4f}; g_loss: {loss_g:.4f}; hr_l1_loss: {hr_l1_loss:.4f}'
             iter_pbar.set_description(loss_str)
 
         torch.save(
-            model.state_dict(),
+            {
+                'encoder': encoder.state_dict(),
+                'model': model.state_dict(),
+            },
             f'{WORK_DIR}/{config_name}/checkpoints/{epoch+1:0>6}.pt')
+        encoder.eval()
         model.eval()
         with torch.no_grad():
             it = iter(test_loader)
