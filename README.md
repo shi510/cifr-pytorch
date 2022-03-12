@@ -14,7 +14,15 @@ and
 [Validation Data (HR images)](http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip) 
 from 
 [DIV2K Dataset](https://data.vision.ee.ethz.ch/cvl/DIV2K).  
+```
+curl -L http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip -o DIV2K_train_HR.zip
+curl -L http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip -o DIV2K_valid_HR.zip
+```
 Decompress thease files to ./sr_dataset folder.  
+```
+unzip DIV2K_train_HR.zip
+unzip DIV2K_valid_HR.zip
+```
 You have the folder structure.  
 ```
 ./sr_dataset
