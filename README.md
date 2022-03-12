@@ -1,13 +1,13 @@
 # cifr-pytorch (This project is in progress.)
 Continuous Implicit Feature Representation
 
-# 0. Installation
+## 0. Installation
 ```
 apt install ninja-build
 pip install -r requirements.txt
 ```
 
-# 1. Dataset
+## 1. Dataset
 Download 
 [Train Data (HR images)](http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip) 
 and 
@@ -24,7 +24,13 @@ You have the folder structure.
     |-- DIV2K_valid_HR
 ```
 
-# 2. Train
+## 2. Train
 ```
+export PYTHONPATH=$(pwd)
 python tools/train.py --config configs/div2k_stylegan_gn_liif.py
 ```
+
+## References
+**Really thank the authors of LIIF for sharing their codes and research.**  
+
+[1] Learning Continuous Image Representation with Local Implicit Image Function, Yinbo Chen et al.
