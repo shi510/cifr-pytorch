@@ -118,7 +118,7 @@ class EqualConv2d(nn.Module):
         )
         if self.activation:
             out = fused_leaky_relu(out, self.bias)
-            # out = torch.nn.functional.leaky_relu(out, 0.2)
+
         return out
 
     def __repr__(self):
@@ -151,7 +151,6 @@ class EqualLinear(nn.Module):
         if self.activation:
             out = F.linear(input, self.weight * self.scale, self.bias * self.lr_mul)
             out = fused_leaky_relu(out, self.bias * self.lr_mul)
-            # out = torch.nn.functional.leaky_relu(out, 0.2)
 
         else:
             out = F.linear(
@@ -274,40 +273,6 @@ class ModulatedConv2d(nn.Module):
             _, _, height, width = out.shape
             out = out.view(batch, self.out_channel, height, width)
 
-        return out
-
-class SpatialModulatedConv2d1x1(nn.Module):
-    def __init__(
-        self,
-        in_channel,
-        out_channel,
-        style_channel,
-        demodulate=True
-    ):
-        super().__init__()
-        self.eps = 1e-8
-        self.in_channel = in_channel
-        self.out_channel = out_channel
-
-        fan_in = in_channel
-        self.scale = 1 / math.sqrt(fan_in)
-
-        self.weight = nn.Parameter(torch.randn(1, out_channel, in_channel, 1, 1))
-
-        self.modulation = EqualConv2d(style_channel, in_channel, 1)
-        self.demodulate = demodulate
-
-    def forward(self, input, style):
-        batch = input.shape[0]
-        style = self.modulation(style).unsqueeze(1)
-        weight = self.scale * self.weight * style
-        if self.demodulate:
-            # demod = torch.rsqrt(weight.pow(2).sum([2, 3, 4]) + 1e-8)
-            demod = 1. / torch.norm(weight.view(weight.shape[0], weight.shape[1], -1), dim=2)
-            weight = weight * demod.view(batch, self.out_channel, 1, 1, 1)
-        input = input.unsqueeze(1)
-        out = input * weight
-        out = out.sum(2)
         return out
 
 
