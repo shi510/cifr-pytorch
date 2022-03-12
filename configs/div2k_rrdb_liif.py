@@ -34,7 +34,7 @@ test_dataset = dict(
     # sample_q=2048,
 )
 
-batch_size=8
+batch_size=16
 epoch=100
 
 optimizer = dict(
@@ -42,16 +42,17 @@ optimizer = dict(
     lr=1e-4
 )
 
+encoder=dict(
+    type="RRDBNet",
+    num_in_ch=3,
+    num_out_ch=32,
+    num_feat=64,
+    num_block=23,
+    scale=1
+)
+
 model = dict(
     type='LIIF',
-    encoder=dict(
-        type="RRDBNet",
-        num_in_ch=3,
-        num_out_ch=32,
-        num_feat=64,
-        num_block=23,
-        scale=1
-    ),
     imnet_in_dim=32
 )
 

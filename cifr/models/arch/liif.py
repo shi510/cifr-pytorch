@@ -4,7 +4,6 @@ import torch.nn.functional as F
 
 from .utils import make_coord
 from ..builder import ARCHITECTURES
-from ..builder import build_architecture
 
 class MLP(nn.Module):
 
@@ -20,16 +19,19 @@ class MLP(nn.Module):
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
-        shape = x.shape[:-1]
-        x = self.layers(x.view(-1, x.shape[-1]))
-        return x.view(*shape, -1)
+        return self.layers(x)
+
 
 @ARCHITECTURES.register_module()
 class LIIF(nn.Module):
 
-    def __init__(self, encoder, imnet_in_dim, local_ensemble=True, feat_unfold=True, cell_decode=True):
+    def __init__(self,
+        imnet_in_dim,
+        local_ensemble=True,
+        feat_unfold=True,
+        cell_decode=True
+    ):
         super().__init__()
-        self.encoder = build_architecture(encoder)
         self.local_ensemble = local_ensemble
         self.feat_unfold = feat_unfold
         self.cell_decode = cell_decode
@@ -43,13 +45,7 @@ class LIIF(nn.Module):
         else:
             self.imnet = None
 
-    def gen_feat(self, inp):
-        self.feat = self.encoder(inp)
-        return self.feat
-
-    def query_rgb(self, coord, cell=None):
-        feat = self.feat
-
+    def forward(self, feat, coord, cell=None):
         if self.imnet is None:
             ret = F.grid_sample(feat, coord.flip(-1).unsqueeze(1),
                 mode='nearest', align_corners=False)[:, :, 0, :] \
@@ -117,7 +113,3 @@ class LIIF(nn.Module):
         for pred, area in zip(preds, areas):
             ret = ret + pred * (area / tot_area).unsqueeze(-1)
         return ret
-
-    def forward(self, inp, coord, cell):
-        self.gen_feat(inp)
-        return self.query_rgb(coord, cell)

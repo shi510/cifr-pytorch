@@ -34,7 +34,7 @@ test_dataset = dict(
     # sample_q=2048,
 )
 
-batch_size=8
+batch_size=16
 epoch=100
 
 optimizer = dict(
@@ -42,15 +42,16 @@ optimizer = dict(
     lr=1e-4
 )
 
+encoder=dict(
+    type='StyleGAN2',
+    arch=dict(type="EncoderDefault", downsample="bilinear"),
+    size=64,
+    style_dim=512,
+    rgb_dim=32
+)
+
 model = dict(
     type='LIIF',
-    encoder=dict(
-        type='StyleGAN2',
-        arch=dict(type="EncoderDefault", downsample="bilinear"),
-        size=64,
-        style_dim=512,
-        rgb_dim=32
-    ),
     imnet_in_dim=32
 )
 

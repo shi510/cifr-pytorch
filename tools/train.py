@@ -26,13 +26,13 @@ def add_img_plot(fig, img, title, rows, cols, num):
     ax.set_title(title, size=25)
     ax.axis("off")
 
-def batched_predict(model, coord, cell, bsize):
+def batched_predict(model, feature, coord, cell, bsize):
     n = coord.shape[1]
     ql = 0
     preds = []
     while ql < n:
         qr = min(ql + bsize, n)
-        pred = model.query_rgb(coord[:, ql: qr, :], cell[:, ql: qr, :]).detach()
+        pred = model(feature, coord[:, ql: qr, :], cell[:, ql: qr, :]).detach()
         
         preds.append(pred)
         ql = qr
@@ -45,6 +45,7 @@ def requires_grad(model, flag=True):
 
 def train(args, config):
     model = build_architecture(config.model).cuda()
+    encoder = build_architecture(config.encoder).cuda()
     disc = build_discriminator(config.discriminator).cuda()
     config.optimizer.update({'params': model.parameters()})
     optim_m = build_optimizer(config.optimizer)
@@ -108,8 +109,8 @@ def train(args, config):
             cell = batch_gan['cell'].cuda()
             real = batch_gan['real'].cuda()
 
-            model.gen_feat(lr)
-            fake = batched_predict(model, coord, cell, 1024)
+            feature = encoder(lr)
+            fake = batched_predict(model, feature, coord, cell, 1024)
             fake.clamp_(0, 1)
             ih, iw = lr.shape[-2:]
             s = math.sqrt(coord.shape[1] / (ih * iw))
@@ -134,8 +135,8 @@ def train(args, config):
             # requires_grad(disc, False)
             optim_m.zero_grad()
 
-            model.gen_feat(lr)
-            fake = batched_predict(model, coord, cell, 1024)
+            feature = encoder(lr)
+            fake = batched_predict(model, feature, coord, cell, 1024)
             fake.clamp_(0, 1)
             ih, iw = lr.shape[-2:]
             s = math.sqrt(coord.shape[1] / (ih * iw))
@@ -155,7 +156,8 @@ def train(args, config):
             cell = batch['cell'].cuda()
             gt = batch['gt'].cuda()
 
-            pred = model(inp, coord, cell)
+            feature = encoder(inp)
+            pred = model(feature, coord, cell)
             hr_l1_loss = loss_fn(pred, gt)
 
             loss_g = loss_g_l1 + loss_rel_g + hr_l1_loss + ctx_loss
@@ -178,8 +180,8 @@ def train(args, config):
                 coord = test_batch['coord'].cuda()
                 cell = test_batch['cell'].cuda()
                 gt = test_batch['gt'].cuda()
-                model.gen_feat(inp)
-                pred = batched_predict(model, coord, cell, 1024)
+                feature = encoder(inp)
+                pred = batched_predict(model, feature, coord, cell, 1024)
                 pred.clamp_(0, 1)
                 ih, iw = inp.shape[-2:]
                 s = math.sqrt(coord.shape[1] / (ih * iw))
