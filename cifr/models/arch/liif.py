@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .utils import make_coord
+from .utils import positional_encoding
 from ..builder import ARCHITECTURES
 
 class MLP(nn.Module):
@@ -11,6 +12,8 @@ class MLP(nn.Module):
         super().__init__()
         layers = []
         lastv = in_dim
+        # TODO:
+        #   1. Use SIREN (periodic activation)
         for hidden in hidden_list:
             layers.append(nn.Linear(lastv, hidden))
             layers.append(nn.ReLU())
@@ -29,16 +32,21 @@ class LIIF(nn.Module):
         imnet_in_dim,
         local_ensemble=True,
         feat_unfold=True,
-        cell_decode=True
+        cell_decode=True,
+        use_pos_encoding=False,
+        use_sin_act=False,
     ):
         super().__init__()
         self.local_ensemble = local_ensemble
         self.feat_unfold = feat_unfold
         self.cell_decode = cell_decode
+        self.use_pos_encoding = use_pos_encoding
 
         if self.feat_unfold:
             imnet_in_dim *= 9
         imnet_in_dim += 2 # attach coord
+        if use_pos_encoding:
+            imnet_in_dim += 40 # sin, cos: L=10
         if self.cell_decode:
             imnet_in_dim += 2
             self.imnet = MLP(imnet_in_dim, 3, [256, 256, 256, 256])
@@ -46,6 +54,8 @@ class LIIF(nn.Module):
             self.imnet = None
 
     def forward(self, feat, coord, cell=None):
+        # TODO:
+        #   1. multi scale features for fine-grained grid sample.
         if self.imnet is None:
             ret = F.grid_sample(feat, coord.flip(-1).unsqueeze(1),
                 mode='nearest', align_corners=False)[:, :, 0, :] \
@@ -90,7 +100,10 @@ class LIIF(nn.Module):
                 rel_coord = coord - q_coord
                 rel_coord[:, :, 0] *= feat.shape[-2]
                 rel_coord[:, :, 1] *= feat.shape[-1]
-                inp = torch.cat([q_feat, rel_coord], dim=-1)
+                # TODO:
+                #   1. Positional Encoding on relative coord (NeRF)
+                rel_coord_pos = positional_encoding(rel_coord, 10)
+                inp = torch.cat([q_feat, rel_coord_pos], dim=-1)
 
                 if self.cell_decode:
                     rel_cell = cell.clone()
