@@ -1,6 +1,7 @@
 addict
 torchvision
 torch-fidelity
+torch-ema
 tqdm
 pillow
 numpy

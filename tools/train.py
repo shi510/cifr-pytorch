@@ -49,6 +49,25 @@ def requires_grad(model, flag=True):
     for p in model.parameters():
         p.requires_grad = flag
 
+@torch.no_grad()
+def save_pred_img(encoder, model, data_loader, img_path, fig, rows, cols):
+    it = iter(data_loader)
+    for i in range(20):
+        test_batch = it.next()
+        inp = test_batch['inp'].cuda()
+        coord = test_batch['coord'].cuda()
+        cell = test_batch['cell'].cuda()
+        gt = test_batch['gt'].cuda()
+        pred = query_all_pixels(encoder, model, inp, coord, cell, 1024)
+        gt = gt.view([pred.shape[0], pred.shape[2], pred.shape[3], pred.shape[1]])
+        gt = gt.permute(0, 3, 1, 2).contiguous()
+        add_img_plot(fig, inp[0], f'Input', rows, cols, i*3+1)
+        add_img_plot(fig, pred[0], f'Predict', rows, cols, i*3+2)
+        add_img_plot(fig, gt[0], f'GT', rows, cols, i*3+3)
+    plt.tight_layout()
+    plt.savefig(img_path, bbox_inches='tight')
+    plt.clf()
+
 def train(args, config):
     model = build_architecture(config.model).cuda()
     encoder = build_architecture(config.encoder).cuda()
@@ -180,23 +199,10 @@ def train(args, config):
         )
         encoder.eval()
         model.eval()
-        with torch.no_grad():
-            it = iter(test_loader)
-            for i in range(20):
-                test_batch = it.next()
-                inp = test_batch['inp'].cuda()
-                coord = test_batch['coord'].cuda()
-                cell = test_batch['cell'].cuda()
-                gt = test_batch['gt'].cuda()
-                pred = query_all_pixels(encoder, model, inp, coord, cell, 1024)
-                add_img_plot(fig, inp[0], f'Input', rows, cols, i*3+1)
-                add_img_plot(fig, pred[0], f'Predict', rows, cols, i*3+2)
-                add_img_plot(fig, gt[0], f'GT', rows, cols, i*3+3)
+        img_path = f'{WORK_DIR}/{config_name}/images/train_{count:0>6}.jpg'
+        save_pred_img(encoder, model, test_loader, img_path, fig, rows, cols)
         encoder_ema.restore(encoder.parameters())
         model_ema.restore(model.parameters())
-        plt.tight_layout()
-        plt.savefig(f'{WORK_DIR}/{config_name}/images/train_{count:0>6}.jpg', bbox_inches='tight')
-        plt.clf()
         count += 1
         iter_pbar.close()
 
