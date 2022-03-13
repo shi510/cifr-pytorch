@@ -110,20 +110,42 @@ def train(args, config):
             model.train()
             disc.train()
 
-            #
-            # Discriminator Step
-            #
-            requires_grad(encoder, False)
-            requires_grad(model, False)
-            requires_grad(disc, True)
-            optim_d.zero_grad()
-
             lr = batch_gan['lr'].cuda()
             coord = batch_gan['coord'].cuda()
             cell = batch_gan['cell'].cuda()
             real = batch_gan['real'].cuda()
 
+            #
+            # Generator Step
+            #
+            requires_grad(disc, False)
+            optim_g.zero_grad()
+            feature = encoder(batch['inp'].cuda())
+            query_pred = model(feature, batch['coord'].cuda(), batch['cell'].cuda())
+            query_l1_loss = loss_fn(query_pred, batch['gt'].cuda())
+            query_l1_loss.backward()
+
             fake = query_all_pixels(encoder, model, lr, coord, cell, 1024)
+            fake_pred = grad_norm_fn(disc, fake)
+            real_pred = grad_norm_fn(disc, real).detach()
+            loss_g_l1 = torch.nn.functional.l1_loss(fake, real, reduction='mean') * 1e-2
+            rel_loss_fn = torch.nn.functional.binary_cross_entropy_with_logits
+            loss_rel_real = rel_loss_fn(real_pred - torch.mean(fake_pred), torch.zeros_like(real_pred)).mean()
+            loss_rel_fake = rel_loss_fn(fake_pred - torch.mean(real_pred), torch.ones_like(fake_pred)).mean()
+            loss_rel_g = (loss_rel_real + loss_rel_fake) / 2
+            ctx_loss = contextual_loss(fake, real)
+
+            loss_g = loss_g_l1 + loss_rel_g + ctx_loss
+            loss_g.backward()
+            optim_g.step()
+            encoder_ema.update()
+            model_ema.update()
+
+            #
+            # Discriminator Step
+            #
+            requires_grad(disc, True)
+            optim_d.zero_grad()
 
             rel_loss_fn = torch.nn.functional.binary_cross_entropy_with_logits
             fake_pred = grad_norm_fn(disc, fake).detach()
@@ -137,45 +159,12 @@ def train(args, config):
             optim_d.step()
             loss_d = loss_rel_real_d + loss_rel_fake_d
 
-            #
-            # Generator Step
-            #
-            requires_grad(encoder, True)
-            requires_grad(model, True)
-            # requires_grad(disc, False) # keep True for gradient normalization
-            optim_g.zero_grad()
-            fake = query_all_pixels(encoder, model, lr, coord, cell, 1024)
-            fake_pred = grad_norm_fn(disc, fake)
-            real_pred = grad_norm_fn(disc, real).detach()
-            loss_g_l1 = torch.nn.functional.l1_loss(fake, real, reduction='mean') * 1e-2
-            rel_loss_fn = torch.nn.functional.binary_cross_entropy_with_logits
-            loss_rel_real = rel_loss_fn(real_pred - torch.mean(fake_pred), torch.zeros_like(real_pred)).mean()
-            loss_rel_fake = rel_loss_fn(fake_pred - torch.mean(real_pred), torch.ones_like(fake_pred)).mean()
-            loss_rel_g = (loss_rel_real + loss_rel_fake) / 2
-            ctx_loss = contextual_loss(fake, real)
-
-            inp = batch['inp'].cuda()
-            coord = batch['coord'].cuda()
-            cell = batch['cell'].cuda()
-            gt = batch['gt'].cuda()
-
-            feature = encoder(inp)
-            pred = model(feature, coord, cell)
-            hr_l1_loss = loss_fn(pred, gt)
-
-            loss_g = loss_g_l1 + loss_rel_g + hr_l1_loss + ctx_loss
-
-            loss_g.backward()
-            optim_g.step()
-            encoder_ema.update()
-            model_ema.update()
-
             loss_str = f'd: {loss_d:.4f};'
             loss_str += f' g: {loss_g:.4f};'
             loss_str += f' g_l1: {loss_g_l1:.4f};'
             loss_str += f' g_rel: {loss_rel_g:.4f}'
             loss_str += f' g_ctx: {ctx_loss:.4f}'
-            loss_str += f' query_l1: {hr_l1_loss:.4f}'
+            loss_str += f' query_l1: {query_l1_loss:.4f}'
             iter_pbar.set_description(loss_str)
 
         encoder_ema.store(encoder.parameters())
