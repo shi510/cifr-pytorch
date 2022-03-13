@@ -125,16 +125,17 @@ def train(args, config):
 
             fake = query_all_pixels(encoder, model, lr, coord, cell, 1024)
 
-            fake_pred = grad_norm_fn(disc, fake.detach())
-            real_pred = grad_norm_fn(disc, real)
-
             rel_loss_fn = torch.nn.functional.binary_cross_entropy_with_logits
-            loss_rel_real_d = rel_loss_fn(real_pred - torch.mean(fake_pred), torch.ones_like(real_pred)).mean()
-            loss_rel_fake_d = rel_loss_fn(fake_pred - torch.mean(real_pred), torch.zeros_like(fake_pred)).mean()
-            loss_rel_d = (loss_rel_real_d + loss_rel_fake_d) / 2
-            loss_d = loss_rel_d
-            loss_d.backward()
+            fake_pred = grad_norm_fn(disc, fake).detach()
+            real_pred = grad_norm_fn(disc, real)
+            loss_rel_real_d = rel_loss_fn(real_pred - torch.mean(fake_pred), torch.ones_like(real_pred)).mean() * 0.5
+            loss_rel_real_d.backward()
+
+            fake_pred = grad_norm_fn(disc, fake.detach())
+            loss_rel_fake_d = rel_loss_fn(fake_pred - torch.mean(real_pred.detach()), torch.zeros_like(fake_pred)).mean() * 0.5
+            loss_rel_fake_d.backward()
             optim_d.step()
+            loss_d = loss_rel_real_d + loss_rel_fake_d
 
             #
             # Generator Step
@@ -169,10 +170,12 @@ def train(args, config):
             encoder_ema.update()
             model_ema.update()
 
-            loss_str = f'd_loss: {loss_d:.4f};'
-            loss_str += f' g_loss: {loss_g:.4f};'
-            loss_str += f' hr_l1_loss: {hr_l1_loss:.4f}'
-            loss_str += f' ctx_loss: {ctx_loss:.4f}'
+            loss_str = f'd: {loss_d:.4f};'
+            loss_str += f' g: {loss_g:.4f};'
+            loss_str += f' g_l1: {loss_g_l1:.4f};'
+            loss_str += f' g_rel: {loss_rel_g:.4f}'
+            loss_str += f' g_ctx: {ctx_loss:.4f}'
+            loss_str += f' query_l1: {hr_l1_loss:.4f}'
             iter_pbar.set_description(loss_str)
 
         encoder_ema.store(encoder.parameters())
