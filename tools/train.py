@@ -27,7 +27,8 @@ def add_img_plot(fig, img, title, rows, cols, num):
     ax.set_title(title, size=25)
     ax.axis("off")
 
-def batched_predict(model, feature, coord, cell, bsize):
+def query_all_pixels(encoder, model, lr, coord, cell, bsize):
+    feature = encoder(lr)
     n = coord.shape[1]
     ql = 0
     preds = []
@@ -37,6 +38,11 @@ def batched_predict(model, feature, coord, cell, bsize):
         preds.append(pred)
         ql = qr
     pred = torch.cat(preds, dim=1)
+    pred.clamp_(0, 1)
+    ih, iw = lr.shape[-2:]
+    s = math.sqrt(coord.shape[1] / (ih * iw))
+    shape = [lr.shape[0], round(ih * s), round(iw * s), 3]
+    pred = pred.view(*shape).permute(0, 3, 1, 2).contiguous()
     return pred
 
 def requires_grad(model, flag=True):
@@ -117,13 +123,7 @@ def train(args, config):
             cell = batch_gan['cell'].cuda()
             real = batch_gan['real'].cuda()
 
-            feature = encoder(lr)
-            fake = batched_predict(model, feature, coord, cell, 1024)
-            fake.clamp_(0, 1)
-            ih, iw = lr.shape[-2:]
-            s = math.sqrt(coord.shape[1] / (ih * iw))
-            shape = [lr.shape[0], round(ih * s), round(iw * s), 3]
-            fake = fake.view(*shape).permute(0, 3, 1, 2).contiguous()
+            fake = query_all_pixels(encoder, model, lr, coord, cell, 1024)
 
             fake_pred = grad_norm_fn(disc, fake.detach())
             real_pred = grad_norm_fn(disc, real)
@@ -143,14 +143,7 @@ def train(args, config):
             requires_grad(model, True)
             # requires_grad(disc, False) # keep True for gradient normalization
             optim_g.zero_grad()
-
-            feature = encoder(lr)
-            fake = batched_predict(model, feature, coord, cell, 1024)
-            fake.clamp_(0, 1)
-            ih, iw = lr.shape[-2:]
-            s = math.sqrt(coord.shape[1] / (ih * iw))
-            shape = [lr.shape[0], round(ih * s), round(iw * s), 3]
-            fake = fake.view(*shape).permute(0, 3, 1, 2).contiguous()
+            fake = query_all_pixels(encoder, model, lr, coord, cell, 1024)
             fake_pred = grad_norm_fn(disc, fake)
             real_pred = grad_norm_fn(disc, real).detach()
             loss_g_l1 = torch.nn.functional.l1_loss(fake, real, reduction='mean') * 1e-2
@@ -182,18 +175,19 @@ def train(args, config):
             loss_str += f' ctx_loss: {ctx_loss:.4f}'
             iter_pbar.set_description(loss_str)
 
+        encoder_ema.store(encoder.parameters())
+        model_ema.store(model.parameters())
+        encoder_ema.copy_to(encoder.parameters())
+        model_ema.copy_to(model.parameters())
         torch.save(
             {
                 'encoder': encoder.state_dict(),
                 'model': model.state_dict(),
             },
-            f'{WORK_DIR}/{config_name}/checkpoints/{epoch+1:0>6}.pt')
+            f'{WORK_DIR}/{config_name}/checkpoints/{epoch+1:0>6}.pth'
+        )
         encoder.eval()
         model.eval()
-        encoder_ema.store(encoder.parameters())
-        model_ema.store(model.parameters())
-        encoder_ema.copy_to(encoder.parameters())
-        model_ema.copy_to(model.parameters())
         with torch.no_grad():
             it = iter(test_loader)
             for i in range(20):
@@ -202,14 +196,7 @@ def train(args, config):
                 coord = test_batch['coord'].cuda()
                 cell = test_batch['cell'].cuda()
                 gt = test_batch['gt'].cuda()
-                feature = encoder(inp)
-                pred = batched_predict(model, feature, coord, cell, 1024)
-                pred.clamp_(0, 1)
-                ih, iw = inp.shape[-2:]
-                s = math.sqrt(coord.shape[1] / (ih * iw))
-                shape = [inp.shape[0], round(ih * s), round(iw * s), 3]
-                pred = pred.view(*shape).permute(0, 3, 1, 2).contiguous()
-                gt = gt.view(*shape).permute(0, 3, 1, 2).contiguous()
+                pred = query_all_pixels(encoder, model, inp, coord, cell, 1024)
                 add_img_plot(fig, inp[0], f'Input', rows, cols, i*3+1)
                 add_img_plot(fig, pred[0], f'Predict', rows, cols, i*3+2)
                 add_img_plot(fig, gt[0], f'GT', rows, cols, i*3+3)
