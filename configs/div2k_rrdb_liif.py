@@ -34,7 +34,7 @@ test_dataset = dict(
     # sample_q=2048,
 )
 
-batch_size=16
+batch_size=8
 epoch=100
 
 optimizer = dict(

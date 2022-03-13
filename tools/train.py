@@ -32,8 +32,7 @@ def batched_predict(model, feature, coord, cell, bsize):
     preds = []
     while ql < n:
         qr = min(ql + bsize, n)
-        pred = model(feature, coord[:, ql: qr, :], cell[:, ql: qr, :]).detach()
-        
+        pred = model(feature, coord[:, ql: qr, :], cell[:, ql: qr, :])
         preds.append(pred)
         ql = qr
     pred = torch.cat(preds, dim=1)
@@ -122,12 +121,12 @@ def train(args, config):
             shape = [lr.shape[0], round(ih * s), round(iw * s), 3]
             fake = fake.view(*shape).permute(0, 3, 1, 2).contiguous()
 
-            fake_pred = grad_norm_fn(disc, fake).detach()
+            fake_pred = grad_norm_fn(disc, fake.detach())
             real_pred = grad_norm_fn(disc, real)
 
             rel_loss_fn = torch.nn.functional.binary_cross_entropy_with_logits
             loss_rel_real_d = rel_loss_fn(real_pred - torch.mean(fake_pred), torch.ones_like(real_pred)).mean()
-            loss_rel_fake_d = rel_loss_fn(fake_pred - torch.mean(real_pred.detach()), torch.zeros_like(fake_pred)).mean()
+            loss_rel_fake_d = rel_loss_fn(fake_pred - torch.mean(real_pred), torch.zeros_like(fake_pred)).mean()
             loss_rel_d = (loss_rel_real_d + loss_rel_fake_d) / 2
             loss_d = loss_rel_d
             loss_d.backward()
@@ -138,7 +137,7 @@ def train(args, config):
             #
             requires_grad(encoder, True)
             requires_grad(model, True)
-            # requires_grad(disc, False)
+            # requires_grad(disc, False) # keep True for gradient normalization
             optim_g.zero_grad()
 
             feature = encoder(lr)
@@ -148,12 +147,12 @@ def train(args, config):
             s = math.sqrt(coord.shape[1] / (ih * iw))
             shape = [lr.shape[0], round(ih * s), round(iw * s), 3]
             fake = fake.view(*shape).permute(0, 3, 1, 2).contiguous()
-            fake_pred = grad_norm_fn(disc, fake).detach()
-            real_pred = grad_norm_fn(disc, real)
+            fake_pred = grad_norm_fn(disc, fake)
+            real_pred = grad_norm_fn(disc, real).detach()
             loss_g_l1 = torch.nn.functional.l1_loss(fake, real, reduction='mean') * 1e-2
             rel_loss_fn = torch.nn.functional.binary_cross_entropy_with_logits
             loss_rel_real = rel_loss_fn(real_pred - torch.mean(fake_pred), torch.zeros_like(real_pred)).mean()
-            loss_rel_fake = rel_loss_fn(fake_pred - torch.mean(real_pred.detach()), torch.ones_like(fake_pred)).mean()
+            loss_rel_fake = rel_loss_fn(fake_pred - torch.mean(real_pred), torch.ones_like(fake_pred)).mean()
             loss_rel_g = (loss_rel_real + loss_rel_fake) / 2
             ctx_loss = contextual_loss(fake, real)
 
@@ -171,7 +170,10 @@ def train(args, config):
             loss_g.backward()
             optim_g.step()
 
-            loss_str = f'd_loss: {loss_d:.4f}; g_loss: {loss_g:.4f}; hr_l1_loss: {hr_l1_loss:.4f}'
+            loss_str = f'd_loss: {loss_d:.4f};'
+            loss_str += f' g_loss: {loss_g:.4f};'
+            loss_str += f' hr_l1_loss: {hr_l1_loss:.4f}'
+            loss_str += f' ctx_loss: {ctx_loss:.4f}'
             iter_pbar.set_description(loss_str)
 
         torch.save(
