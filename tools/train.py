@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
+from torch_ema import ExponentialMovingAverage
 
 from cifr.core.config import Config
 from cifr.models.builder import build_architecture, build_optimizer, build_dataset
@@ -45,7 +46,10 @@ def requires_grad(model, flag=True):
 def train(args, config):
     model = build_architecture(config.model).cuda()
     encoder = build_architecture(config.encoder).cuda()
+    model_ema = ExponentialMovingAverage(model.parameters(), decay=0.995)
+    encoder_ema = ExponentialMovingAverage(encoder.parameters(), decay=0.995)
     disc = build_discriminator(config.discriminator).cuda()
+
     config.optimizer.update({'params': [
         {'params': encoder.parameters()},
         {'params': model.parameters()}
@@ -169,6 +173,8 @@ def train(args, config):
 
             loss_g.backward()
             optim_g.step()
+            encoder_ema.update()
+            model_ema.update()
 
             loss_str = f'd_loss: {loss_d:.4f};'
             loss_str += f' g_loss: {loss_g:.4f};'
@@ -184,6 +190,10 @@ def train(args, config):
             f'{WORK_DIR}/{config_name}/checkpoints/{epoch+1:0>6}.pt')
         encoder.eval()
         model.eval()
+        encoder_ema.store(encoder.parameters())
+        model_ema.store(model.parameters())
+        encoder_ema.copy_to(encoder.parameters())
+        model_ema.copy_to(model.parameters())
         with torch.no_grad():
             it = iter(test_loader)
             for i in range(20):
@@ -203,6 +213,8 @@ def train(args, config):
                 add_img_plot(fig, inp[0], f'Input', rows, cols, i*3+1)
                 add_img_plot(fig, pred[0], f'Predict', rows, cols, i*3+2)
                 add_img_plot(fig, gt[0], f'GT', rows, cols, i*3+3)
+        encoder_ema.restore(encoder.parameters())
+        model_ema.restore(model.parameters())
         plt.tight_layout()
         plt.savefig(f'{WORK_DIR}/{config_name}/images/train_{count:0>6}.jpg', bbox_inches='tight')
         plt.clf()
