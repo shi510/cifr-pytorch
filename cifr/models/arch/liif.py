@@ -77,7 +77,7 @@ class LIIF(nn.Module):
         rx = 2 / feat.shape[-2] / 2
         ry = 2 / feat.shape[-1] / 2
 
-        feat_coord = make_coord(feat.shape[-2:], flatten=False).cuda() \
+        feat_coord = make_coord(feat.shape[-2:], flatten=False).to(feat.device) \
             .permute(2, 0, 1) \
             .unsqueeze(0).expand(feat.shape[0], 2, *feat.shape[-2:])
 
@@ -102,7 +102,10 @@ class LIIF(nn.Module):
                 rel_coord[:, :, 1] *= feat.shape[-1]
                 # TODO:
                 #   1. Positional Encoding on relative coord (NeRF)
-                rel_coord_pos = positional_encoding(rel_coord, 10)
+                if self.use_pos_encoding:
+                    rel_coord_pos = positional_encoding(rel_coord, 10)
+                else:
+                    rel_coord_pos = rel_coord
                 inp = torch.cat([q_feat, rel_coord_pos], dim=-1)
 
                 if self.cell_decode:

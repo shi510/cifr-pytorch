@@ -41,17 +41,17 @@ class ContextualBilateralLoss(nn.Module):
         self.band_width = band_width
 
         if use_vgg:
-            self.vgg_model = VGG19().cuda()
+            self.vgg_model = VGG19()
             self.vgg_layer = vgg_layer
             self.register_buffer(
                 name='vgg_mean',
                 tensor=torch.tensor(
-                    [[[0.485]], [[0.456]], [[0.406]]], requires_grad=False).cuda()
+                    [[[0.485]], [[0.456]], [[0.406]]], requires_grad=False)
             )
             self.register_buffer(
                 name='vgg_std',
                 tensor=torch.tensor(
-                    [[[0.229]], [[0.224]], [[0.225]]], requires_grad=False).cuda()
+                    [[[0.229]], [[0.224]], [[0.225]]], requires_grad=False)
             )
 
     def forward(self, x, y):

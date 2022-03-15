@@ -30,12 +30,11 @@ test_dataset = dict(
     ),
     inp_size=64,
     scale_min=2,
-    scale_max=4,
-    # sample_q=2048,
+    scale_max=6,
 )
 
-batch_size=8
-epoch=100
+batch_size=16
+epoch=200
 
 optimizer = dict(
     type='Adam',
@@ -52,11 +51,12 @@ encoder=dict(
 
 model = dict(
     type='LIIF',
-    imnet_in_dim=32
+    imnet_in_dim=32,
+    use_pos_encoding=True,
 )
 
 discriminator = dict(
-    type='UNetSN',
+    type='UNet',
     num_in_ch=3,
     sn_norm=True
 )

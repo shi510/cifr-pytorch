@@ -30,12 +30,12 @@ test_dataset = dict(
     ),
     inp_size=64,
     scale_min=2,
-    scale_max=4,
+    scale_max=6,
     # sample_q=2048,
 )
 
-batch_size=8
-epoch=100
+batch_size=16
+epoch=200
 
 optimizer = dict(
     type='Adam',

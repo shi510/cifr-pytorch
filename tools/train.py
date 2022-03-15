@@ -186,17 +186,20 @@ def train(args, config):
             loss_str += f' query_l1: {query_l1_loss:.4f}'
             iter_pbar.set_description(loss_str)
 
-        encoder_ema.store(encoder.parameters())
-        model_ema.store(model.parameters())
-        encoder_ema.copy_to(encoder.parameters())
-        model_ema.copy_to(model.parameters())
         torch.save(
             {
                 'encoder': encoder.state_dict(),
                 'model': model.state_dict(),
+                'encoder_ema': encoder_ema.state_dict(),
+                'model_ema': model_ema.state_dict(),
+                'discriminator': disc.state_dict(),
             },
             f'{WORK_DIR}/{config_name}/checkpoints/{epoch+1:0>6}.pth'
         )
+        encoder_ema.store(encoder.parameters())
+        model_ema.store(model.parameters())
+        encoder_ema.copy_to(encoder.parameters())
+        model_ema.copy_to(model.parameters())
         encoder.eval()
         model.eval()
         img_path = f'{WORK_DIR}/{config_name}/images/train_{count:0>6}.jpg'
