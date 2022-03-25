@@ -43,7 +43,16 @@ You have the folder structure.
 ## 2. Train
 ```
 export PYTHONPATH=$(pwd)
-python tools/train.py --config configs/div2k_stylegan_gn_liif.py
+python tools/train.py --config configs/div2k_stylegan_sn_liif.py
+```
+
+## 3. Inference
+```
+export PYTHONPATH=$(pwd)
+python tools/inference_liif.py \
+--config configs/div2k_stylegan_sn_liif.py \
+--ckpt work_dir div2k_stylegan_sn_liif/checkpoints/000200.pth \
+--img test.jpg
 ```
 
 ## References
