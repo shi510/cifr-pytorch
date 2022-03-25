@@ -36,6 +36,8 @@ class EncoderDefault(nn.Module):
         self.conv1_2 = Conv2dBlock(32, 32, residual=True)
         if downsample == "max":
             self.downsample1 = nn.MaxPool2d(2)
+        elif downsample == "avg":
+            self.downsample1 = nn.AvgPool2d(2, 2)
         else:
             self.downsample1 = lambda x : F.interpolate(x, scale_factor=0.5, mode=downsample, align_corners=True, recompute_scale_factor=True)
 
@@ -43,6 +45,8 @@ class EncoderDefault(nn.Module):
         self.conv2_2 = Conv2dBlock(64, 64, residual=True)
         if downsample == "max":
             self.downsample2 = nn.MaxPool2d(2)
+        elif downsample == "avg":
+            self.downsample2 = nn.AvgPool2d(2, 2)
         else:
             self.downsample2 = lambda x : F.interpolate(x, scale_factor=0.5, mode=downsample, align_corners=True, recompute_scale_factor=True)
 
@@ -50,6 +54,8 @@ class EncoderDefault(nn.Module):
         self.conv3_2 = Conv2dBlock(128, 128, residual=True)
         if downsample == "max":
             self.downsample3 = nn.MaxPool2d(2)
+        elif downsample == "avg":
+            self.downsample3 = nn.AvgPool2d(2, 2)
         else:
             self.downsample3 = lambda x : F.interpolate(x, scale_factor=0.5, mode=downsample, align_corners=True, recompute_scale_factor=True)
 
@@ -57,13 +63,13 @@ class EncoderDefault(nn.Module):
         self.conv4_2 = Conv2dBlock(256, 256, residual=True)
         if downsample == "max":
             self.downsample4 = nn.MaxPool2d(2)
+        elif downsample == "avg":
+            self.downsample4 = nn.AvgPool2d(2, 2)
         else:
             self.downsample4 = lambda x : F.interpolate(x, scale_factor=0.5, mode=downsample, align_corners=True, recompute_scale_factor=True)
 
         self.conv5_1 = Conv2dBlock(256, 512, residual=True)
         self.conv5_2 = Conv2dBlock(512, 512, residual=True)
-
-        self.gavg_pool = nn.AdaptiveAvgPool2d((1,1))
 
     def forward(self, x):
         x = self.conv1_1(x)

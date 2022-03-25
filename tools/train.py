@@ -2,8 +2,8 @@ import argparse
 import os
 import math
 
-import cv2
 import torch
+import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -67,6 +67,15 @@ def save_pred_img(encoder, model, data_loader, img_path, fig, rows, cols):
     plt.tight_layout()
     plt.savefig(img_path, bbox_inches='tight')
     plt.clf()
+
+def d_logistic_loss(real_pred, fake_pred):
+    real_loss = F.softplus(-real_pred)
+    fake_loss = F.softplus(fake_pred)
+    return real_loss.mean() + fake_loss.mean()
+
+def g_nonsaturating_loss(fake_pred):
+    loss = F.softplus(-fake_pred).mean()
+    return loss
 
 def train(args, config):
     model = build_architecture(config.model).cuda()
@@ -139,23 +148,19 @@ def train(args, config):
             #
             requires_grad(disc, False)
             optim_g.zero_grad()
+
+            fake = query_all_pixels(encoder, model, lr, coord, cell, 1024)
+            fake_pred = grad_norm_fn(disc, fake)
+            ctx_loss = contextual_loss(fake, real)
+            loss_fake = g_nonsaturating_loss(fake_pred)
+            loss_g = ctx_loss + loss_fake
+            loss_g.backward()
+
             feature = encoder(batch['inp'].cuda())
             query_pred = model(feature, batch['coord'].cuda(), batch['cell'].cuda())
             query_l1_loss = loss_fn(query_pred, batch['gt'].cuda())
             query_l1_loss.backward()
 
-            fake = query_all_pixels(encoder, model, lr, coord, cell, 1024)
-            fake_pred = grad_norm_fn(disc, fake)
-            real_pred = grad_norm_fn(disc, real).detach()
-            loss_g_l1 = torch.nn.functional.l1_loss(fake, real, reduction='mean') * 1e-2
-            rel_loss_fn = torch.nn.functional.binary_cross_entropy_with_logits
-            loss_rel_real = rel_loss_fn(real_pred - torch.mean(fake_pred), torch.zeros_like(real_pred)).mean()
-            loss_rel_fake = rel_loss_fn(fake_pred - torch.mean(real_pred), torch.ones_like(fake_pred)).mean()
-            loss_rel_g = (loss_rel_real + loss_rel_fake) / 2
-            ctx_loss = contextual_loss(fake, real)
-
-            loss_g = loss_g_l1 + loss_rel_g + ctx_loss
-            loss_g.backward()
             optim_g.step()
             encoder_ema.update()
             model_ema.update()
@@ -166,22 +171,14 @@ def train(args, config):
             requires_grad(disc, True)
             optim_d.zero_grad()
 
-            rel_loss_fn = torch.nn.functional.binary_cross_entropy_with_logits
-            fake_pred = grad_norm_fn(disc, fake).detach()
-            real_pred = grad_norm_fn(disc, real)
-            loss_rel_real_d = rel_loss_fn(real_pred - torch.mean(fake_pred), torch.ones_like(real_pred)).mean() * 0.5
-            loss_rel_real_d.backward()
-
             fake_pred = grad_norm_fn(disc, fake.detach())
-            loss_rel_fake_d = rel_loss_fn(fake_pred - torch.mean(real_pred.detach()), torch.zeros_like(fake_pred)).mean() * 0.5
-            loss_rel_fake_d.backward()
+            real_pred = grad_norm_fn(disc, real)
+            loss_d = d_logistic_loss(real_pred, fake_pred)
+            loss_d.backward()
             optim_d.step()
-            loss_d = loss_rel_real_d + loss_rel_fake_d
 
             loss_str = f'd: {loss_d:.4f};'
             loss_str += f' g: {loss_g:.4f};'
-            loss_str += f' g_l1: {loss_g_l1:.4f};'
-            loss_str += f' g_rel: {loss_rel_g:.4f}'
             loss_str += f' g_ctx: {ctx_loss:.4f}'
             loss_str += f' query_l1: {query_l1_loss:.4f}'
             iter_pbar.set_description(loss_str)

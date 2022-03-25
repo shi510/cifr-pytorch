@@ -43,7 +43,7 @@ optimizer = dict(
 
 encoder=dict(
     type='StyleGAN2',
-    arch=dict(type="EncoderDefault", downsample="bilinear"),
+    arch=dict(type="EncoderDefault", downsample="avg"),
     size=64,
     style_dim=512,
     rgb_dim=32
@@ -52,7 +52,7 @@ encoder=dict(
 model = dict(
     type='LIIF',
     imnet_in_dim=32,
-    use_pos_encoding=True,
+    use_pos_encoding=False,
 )
 
 discriminator = dict(
