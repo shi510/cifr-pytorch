@@ -1,6 +1,4 @@
-from .models.generators import *
 from .models.discriminators import *
-from .models.gans import *
 from .models.optimizers import *
 from .models.arch import *
 from .datasets import *

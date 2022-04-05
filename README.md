@@ -51,7 +51,7 @@ python tools/train.py --config configs/div2k_stylegan_sn_liif.py
 export PYTHONPATH=$(pwd)
 python tools/inference_liif.py \
 --config configs/div2k_stylegan_sn_liif.py \
---ckpt work_dir div2k_stylegan_sn_liif/checkpoints/000200.pth \
+--ckpt work_dir/div2k_stylegan_sn_liif/checkpoints/000200.pth \
 --img test.jpg
 ```
 

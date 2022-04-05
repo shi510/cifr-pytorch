@@ -11,7 +11,7 @@ from tqdm import tqdm
 from torch_ema import ExponentialMovingAverage
 
 from cifr.core.config import Config
-from cifr.models.builder import build_generator, build_optimizer, build_dataset
+from cifr.models.builder import build_architecture, build_optimizer, build_dataset
 from cifr.models.builder import build_discriminator
 from cifr.models.losses.contextual_loss import ContextualLoss, ContextualBilateralLoss
 from cifr.models.losses.gradient_norm import normalize_gradient
@@ -27,12 +27,30 @@ def add_img_plot(fig, img, title, rows, cols, num):
     ax.set_title(title, size=25)
     ax.axis("off")
 
+def query_all_pixels(encoder, model, lr, coord, cell, bsize):
+    feature = encoder(lr)
+    n = coord.shape[1]
+    ql = 0
+    preds = []
+    while ql < n:
+        qr = min(ql + bsize, n)
+        pred = model(lr, feature, coord[:, ql: qr, :], cell[:, ql: qr, :])
+        preds.append(pred)
+        ql = qr
+    pred = torch.cat(preds, dim=1)
+    pred.clamp_(0, 1)
+    ih, iw = lr.shape[-2:]
+    s = math.sqrt(coord.shape[1] / (ih * iw))
+    shape = [lr.shape[0], round(ih * s), round(iw * s), 3]
+    pred = pred.view(*shape).permute(0, 3, 1, 2).contiguous()
+    return pred
+
 def requires_grad(model, flag=True):
     for p in model.parameters():
         p.requires_grad = flag
 
 @torch.no_grad()
-def save_pred_img(generator, data_loader, img_path, fig, rows, cols):
+def save_pred_img(encoder, model, data_loader, img_path, fig, rows, cols):
     it = iter(data_loader)
     for i in range(20):
         test_batch = it.next()
@@ -40,7 +58,7 @@ def save_pred_img(generator, data_loader, img_path, fig, rows, cols):
         coord = test_batch['coord'].cuda()
         cell = test_batch['cell'].cuda()
         gt = test_batch['gt'].cuda()
-        pred = generator(inp, coord, cell)
+        pred = query_all_pixels(encoder, model, inp, coord, cell, 1024)
         gt = gt.view([pred.shape[0], pred.shape[2], pred.shape[3], pred.shape[1]])
         gt = gt.permute(0, 3, 1, 2).contiguous()
         add_img_plot(fig, inp[0], f'Input', rows, cols, i*3+1)
@@ -60,11 +78,16 @@ def g_nonsaturating_loss(fake_pred):
     return loss
 
 def train(args, config):
-    gen = build_generator(config.generator).cuda()
-    gen_ema = ExponentialMovingAverage(gen.parameters(), decay=0.995)
+    model = build_architecture(config.model).cuda()
+    encoder = build_architecture(config.encoder).cuda()
+    model_ema = ExponentialMovingAverage(model.parameters(), decay=0.995)
+    encoder_ema = ExponentialMovingAverage(encoder.parameters(), decay=0.995)
     disc = build_discriminator(config.discriminator).cuda()
 
-    config.optimizer.update({'params': gen.parameters()})
+    config.optimizer.update({'params': [
+        {'params': encoder.parameters()},
+        {'params': model.parameters()}
+        ]})
     optim_g = build_optimizer(config.optimizer)
     config.optimizer.update({'params': disc.parameters()})
     optim_d = build_optimizer(config.optimizer)
@@ -95,23 +118,21 @@ def train(args, config):
     loss_fn = torch.nn.L1Loss()
     grad_norm_fn = normalize_gradient if config.discriminator_gradient_norm else lambda fn, x: fn(x)
 
-    if args.name == None:
-        config_name = os.path.splitext(os.path.basename(args.config))[0]
-    else:
-        config_name = args.name
+    config_name = os.path.splitext(os.path.basename(args.config))[0] if args.name is None else args.name
     os.makedirs(f'{WORK_DIR}/{config_name}/images', exist_ok=True)
     os.makedirs(f'{WORK_DIR}/{config_name}/checkpoints', exist_ok=True)
     # config.dump(f'{WORK_DIR}/{config_name}/{config_name}.py')
+    count = 0
     rows = 20
     cols = 3
     fig = plt.figure(figsize=(15, rows*6))
-
     total_iter = len(train_set) // config.batch_size + int(len(train_set) % config.batch_size > 0)
     epoch_pbar = tqdm(range(config.epoch), total=config.epoch, desc='Epoch', position=0, ncols=0)
     for epoch in epoch_pbar:
-        iter_pbar = tqdm(enumerate(zip(train_loader, train_loader_gan)), total=total_iter, leave=False, position=1, ncols=0)
+        iter_pbar = tqdm(enumerate(zip(train_loader, train_loader_gan)), total=total_iter, leave=False, position=1,  ncols=0)
         for n, (batch, batch_gan) in iter_pbar:
-            gen.train()
+            encoder.train()
+            model.train()
             disc.train()
 
             lr = batch_gan['lr'].cuda()
@@ -125,19 +146,25 @@ def train(args, config):
             requires_grad(disc, False)
             optim_g.zero_grad()
 
-            fake = gen(lr, coord, cell)
+            fake = query_all_pixels(encoder, model, lr, coord, cell, 1024)
             fake_pred = grad_norm_fn(disc, fake)
             ctx_loss = contextual_loss(fake, real)
             loss_fake = g_nonsaturating_loss(fake_pred)
             loss_g = ctx_loss + loss_fake
             loss_g.backward()
 
-            query_pred = gen.query_rgb(batch['inp'].cuda(), batch['coord'].cuda(), batch['cell'].cuda())
-            query_l1_loss = loss_fn(query_pred, batch['gt'].cuda())
+            query_inp = batch['inp'].cuda()
+            query_coord = batch['coord'].cuda()
+            query_cell = batch['cell'].cuda()
+            query_gt = batch['gt'].cuda()
+            feature = encoder(query_inp)
+            query_pred = model(query_inp, feature, query_coord, query_cell)
+            query_l1_loss = loss_fn(query_pred, query_gt)
             query_l1_loss.backward()
 
             optim_g.step()
-            gen_ema.update()
+            encoder_ema.update()
+            model_ema.update()
 
             #
             # Discriminator Step
@@ -159,18 +186,25 @@ def train(args, config):
 
         torch.save(
             {
-                'generator': gen.state_dict(),
-                'generator_ema': gen_ema.state_dict(),
+                'encoder': encoder.state_dict(),
+                'model': model.state_dict(),
+                'encoder_ema': encoder_ema.state_dict(),
+                'model_ema': model_ema.state_dict(),
                 'discriminator': disc.state_dict(),
             },
             f'{WORK_DIR}/{config_name}/checkpoints/{epoch+1:0>6}.pth'
         )
-        gen_ema.store(gen.parameters())
-        gen_ema.copy_to(gen.parameters())
-        gen.eval()
-        img_path = f'{WORK_DIR}/{config_name}/images/train_{epoch+1:0>6}.jpg'
-        save_pred_img(gen, test_loader, img_path, fig, rows, cols)
-        gen_ema.restore(gen.parameters())
+        encoder_ema.store(encoder.parameters())
+        model_ema.store(model.parameters())
+        encoder_ema.copy_to(encoder.parameters())
+        model_ema.copy_to(model.parameters())
+        encoder.eval()
+        model.eval()
+        img_path = f'{WORK_DIR}/{config_name}/images/train_{count:0>6}.jpg'
+        save_pred_img(encoder, model, test_loader, img_path, fig, rows, cols)
+        encoder_ema.restore(encoder.parameters())
+        model_ema.restore(model.parameters())
+        count += 1
         iter_pbar.close()
 
 if __name__ == '__main__':
