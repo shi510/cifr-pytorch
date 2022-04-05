@@ -38,9 +38,16 @@ You have the folder structure.
 ```
 
 ## 2. Train
+For single-gpu training, 
 ```
 export PYTHONPATH=$(pwd)
 python tools/train.py --config configs/div2k_stylegan_sn_liif.py
+```
+For multi-gpu training, 
+```
+python -m torch.distributed.run --nproc_per_node=4 \
+tools/train_dist.py \
+--config configs/div2k_stylegan_sn_liif.py
 ```
 
 ## 3. Inference
