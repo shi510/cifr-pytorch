@@ -5,9 +5,6 @@ Continuous Implicit Feature Representation
 * Adversarial Training (Generator: Encoder + LIIF, Discriminator: U-Net based)
 * An Encoder is StyleGAN based architecture (Noise Injection for generating fine-grained details)  
 * Contextual Loss  
-* Gradient Normalization for a Discriminator  
-* Relativistic Loss (ESRGAN)  
-* Positional Encoding of relative coordinates to LIIF (NeRF)  
 
 ## 0. Installation
 ```
