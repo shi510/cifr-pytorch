@@ -33,7 +33,7 @@ test_dataset = dict(
     scale_max=6,
 )
 
-batch_size=16
+batch_size=8
 epoch=200
 
 optimizer = dict(
@@ -41,18 +41,20 @@ optimizer = dict(
     lr=1e-4
 )
 
-encoder=dict(
+generator=dict(
+    type='LIIFGenerator',
+    encoder_model=dict(
     type='StyleGAN2',
     arch=dict(type="EncoderDefault", downsample="avg"),
     size=64,
     style_dim=512,
     rgb_dim=32
-)
-
-model = dict(
+    ),
+    implicit_model=dict(
     type='LIIF',
     imnet_in_dim=32,
     use_pos_encoding=False,
+    )
 )
 
 discriminator = dict(

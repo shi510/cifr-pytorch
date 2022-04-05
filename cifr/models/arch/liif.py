@@ -53,7 +53,7 @@ class LIIF(nn.Module):
         else:
             self.imnet = None
 
-    def forward(self, feat, coord, cell=None):
+    def forward(self, img, feat, coord, cell=None):
         # TODO:
         #   1. multi scale features for fine-grained grid sample.
         if self.imnet is None:

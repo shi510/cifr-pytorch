@@ -11,7 +11,7 @@ from torchvision import transforms
 from torch_ema import ExponentialMovingAverage
 
 from cifr.core.config import Config
-from cifr.models.builder import build_architecture
+from cifr.models.builder import build_generator
 from cifr.models.arch.utils import make_coord
 
 
@@ -25,61 +25,18 @@ def add_img_plot(fig, img, title, rows, cols, num):
     ax.set_title(title, size=25)
     ax.axis("off")
 
-@torch.no_grad()
-def query_all_pixels(encoder, model, lr, coord, cell, bsize):
-    feature = encoder(lr)
-    n = coord.shape[1]
-    ql = 0
-    preds = []
-    while ql < n:
-        qr = min(ql + bsize, n)
-        pred = model(feature, coord[:, ql: qr, :], cell[:, ql: qr, :])
-        preds.append(pred)
-        ql = qr
-    pred = torch.cat(preds, dim=1)
-    pred.clamp_(0, 1)
-    ih, iw = lr.shape[-2:]
-    s = math.sqrt(coord.shape[1] / (ih * iw))
-    shape = [lr.shape[0], round(ih * s), round(iw * s), 3]
-    pred = pred.view(*shape).permute(0, 3, 1, 2).contiguous()
-    return pred
-
-@torch.no_grad()
-def save_pred_img(encoder, model, data_loader, img_path, fig, rows, cols):
-    it = iter(data_loader)
-    for i in range(20):
-        test_batch = it.next()
-        inp = test_batch['inp'].cuda()
-        coord = test_batch['coord'].cuda()
-        cell = test_batch['cell'].cuda()
-        gt = test_batch['gt'].cuda()
-        pred = query_all_pixels(encoder, model, inp, coord, cell, 1024)
-        gt = gt.view([pred.shape[0], pred.shape[2], pred.shape[3], pred.shape[1]])
-        gt = gt.permute(0, 3, 1, 2).contiguous()
-        add_img_plot(fig, inp[0], f'Input', rows, cols, i*3+1)
-        add_img_plot(fig, pred[0], f'Predict', rows, cols, i*3+2)
-        add_img_plot(fig, gt[0], f'GT', rows, cols, i*3+3)
-    plt.tight_layout()
-    plt.savefig(img_path, bbox_inches='tight')
-    plt.clf()
-
 def resize_fn(img, size):
     return transforms.ToTensor()(
         transforms.Resize(size, transforms.InterpolationMode.BICUBIC)(
             transforms.ToPILImage()(img)))
 
 def inference(args, config):
-    encoder = build_architecture(config.encoder).cuda()
-    model = build_architecture(config.model).cuda()
+    gen = build_generator(config.generator).cuda()
     state_dict = torch.load(args.ckpt)
-    encoder_ema = ExponentialMovingAverage(encoder.parameters(), decay=0.995)
-    model_ema = ExponentialMovingAverage(model.parameters(), decay=0.995)
-    encoder_ema.load_state_dict(state_dict['encoder_ema'])
-    model_ema.load_state_dict(state_dict['model_ema'])
-    encoder_ema.copy_to(encoder.parameters())
-    model_ema.copy_to(model.parameters())
-    encoder.eval()
-    model.eval()
+    encoder_ema = ExponentialMovingAverage(gen.parameters(), decay=0.995)
+    encoder_ema.load_state_dict(state_dict['generator_ema'])
+    encoder_ema.copy_to(gen.parameters())
+    gen.eval()
 
     img = Image.open(args.img)
     img = img.convert("RGB")
@@ -88,19 +45,20 @@ def inference(args, config):
 
     config_name = os.path.splitext(os.path.basename(args.config))[0]
     os.makedirs(f'{WORK_DIR}/{config_name}/eval', exist_ok=True)
-    upsample_list = [2, 3, 4, 8, 16]
+    upsample_list = [2, 3, 4, 8, 16, 32]
     rows = 2
     cols = len(upsample_list) + 1
     fig = plt.figure(figsize=(15, rows*6))
     add_img_plot(fig, lr_img[0], f'Input', rows, cols, 1)
-    for n, xup in enumerate([2, 3, 4, 8, 16]):
+    for n, xup in enumerate(upsample_list):
         target_H = lr_img.shape[2]*xup
         target_W = lr_img.shape[3]*xup
         coord = make_coord((target_H, target_W)).unsqueeze(0).cuda()
         cell = torch.ones_like(coord).cuda()
         cell[:, :, 0] *= 2 / (target_H)
         cell[:, :, 1] *= 2 / (target_W)
-        pred = query_all_pixels(encoder, model, lr_img, coord, cell, 1024)
+        with torch.no_grad():
+            pred = gen(lr_img, coord, cell)
         add_img_plot(fig, pred[0], f'Up x{xup}', rows, cols, n + 2)
 
     file_name = os.path.splitext(os.path.basename(args.img))[0]

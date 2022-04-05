@@ -296,9 +296,8 @@ class ConstantInput(nn.Module):
 
         self.input = nn.Parameter(torch.randn(1, channel, size, size))
 
-    def forward(self, input):
-        batch = input.shape[0]
-        out = self.input.repeat(batch, 1, 1, 1)
+    def forward(self, batch_size):
+        out = self.input.repeat(batch_size, 1, 1, 1)
         return out
 
 
