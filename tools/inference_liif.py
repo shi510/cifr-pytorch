@@ -44,25 +44,6 @@ def query_all_pixels(encoder, model, lr, coord, cell, bsize):
     pred = pred.view(*shape).permute(0, 3, 1, 2).contiguous()
     return pred
 
-@torch.no_grad()
-def save_pred_img(encoder, model, data_loader, img_path, fig, rows, cols):
-    it = iter(data_loader)
-    for i in range(20):
-        test_batch = it.next()
-        inp = test_batch['inp'].cuda()
-        coord = test_batch['coord'].cuda()
-        cell = test_batch['cell'].cuda()
-        gt = test_batch['gt'].cuda()
-        pred = query_all_pixels(encoder, model, inp, coord, cell, 1024)
-        gt = gt.view([pred.shape[0], pred.shape[2], pred.shape[3], pred.shape[1]])
-        gt = gt.permute(0, 3, 1, 2).contiguous()
-        add_img_plot(fig, inp[0], f'Input', rows, cols, i*3+1)
-        add_img_plot(fig, pred[0], f'Predict', rows, cols, i*3+2)
-        add_img_plot(fig, gt[0], f'GT', rows, cols, i*3+3)
-    plt.tight_layout()
-    plt.savefig(img_path, bbox_inches='tight')
-    plt.clf()
-
 def resize_fn(img, size):
     return transforms.ToTensor()(
         transforms.Resize(size, transforms.InterpolationMode.BICUBIC)(
@@ -116,4 +97,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     cfg = Config.fromfile(args.config)
-    inference(args, cfg)
+    with torch.no_grad():
+        inference(args, cfg)

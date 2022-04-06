@@ -34,7 +34,8 @@ class LIIF(nn.Module):
         feat_unfold=True,
         cell_decode=True,
         use_pos_encoding=False,
-        use_sin_act=False,
+        mlp_dim=256,
+        n_mlp=4
     ):
         super().__init__()
         self.local_ensemble = local_ensemble
@@ -49,7 +50,7 @@ class LIIF(nn.Module):
             imnet_in_dim += 40 # sin, cos: L=10
         if self.cell_decode:
             imnet_in_dim += 2
-            self.imnet = MLP(imnet_in_dim, 3, [256, 256, 256, 256])
+            self.imnet = MLP(imnet_in_dim, 3, [mlp_dim]*n_mlp)
         else:
             self.imnet = None
 

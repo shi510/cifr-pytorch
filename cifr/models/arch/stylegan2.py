@@ -1,12 +1,10 @@
 import math
 
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from ..builder import ARCHITECTURES
 from ..builder import build_architecture
-from .stylegan_utils import StyledConv, ToRGB
+from .stylegan_utils import StyledConv, ToRGB, ConstantInput
 
 
 @ARCHITECTURES.register_module()
@@ -28,7 +26,9 @@ class StyleGAN2(nn.Module):
             64: 32,
         }
 
-        self.lin0 = StyledConv(style_dim, self.channels[4], 3, style_dim, demodulate=self.demodulate)
+        self.constant4x4 = ConstantInput(self.channels[4], 4)
+
+        self.lin0 = StyledConv(self.channels[4], self.channels[4], 3, style_dim, demodulate=self.demodulate)
         self.to_rgb0 = ToRGB(self.channels[4], style_dim, rgb_dim=rgb_dim, upsample=False)
 
         self.linears = nn.ModuleList()
@@ -46,12 +46,10 @@ class StyleGAN2(nn.Module):
 
             in_channels = out_channel
 
-        self.gavg_pool = nn.AdaptiveAvgPool2d((1,1))
-
     def forward(self, x):
         latent, features = self.backbone(x)
-        latent = self.gavg_pool(latent).view(latent.shape[0:2])
-        out = self.lin0(features[0], latent)
+        out = features[0] + self.constant4x4(x.shape[0])
+        out = self.lin0(out, latent)
         rgb = self.to_rgb0(out, latent)
         for lin1, lin2, to_rgb, feat in zip(self.linears[::2], self.linears[1::2], self.to_rgbs, features[1:]):
             out = lin1(out, latent) + feat

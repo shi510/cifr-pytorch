@@ -1,3 +1,5 @@
+import math
+
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -26,74 +28,71 @@ class Conv2dBlock(nn.Module):
             x = x + shortcut
         return x
 
-
 @ARCHITECTURES.register_module()
 class EncoderDefault(nn.Module):
-    def __init__(self, downsample="max"):
+    def __init__(self, downscale, latent_dim, mode="max"):
         super(EncoderDefault, self).__init__()
+        downstep = int(math.log(downscale, 2))
+        feat_spec = {
+            0: 32,
+            1: 64,
+            2: 128,
+            3: 256,
+            4: 512
+        }
+        self.out_channels = feat_spec[downstep]
 
-        self.conv1_1 = Conv2dBlock(3, 32, residual=True)
-        self.conv1_2 = Conv2dBlock(32, 32, residual=True)
-        if downsample == "max":
-            self.downsample1 = nn.MaxPool2d(2)
-        elif downsample == "avg":
-            self.downsample1 = nn.AvgPool2d(2, 2)
-        else:
-            self.downsample1 = lambda x : F.interpolate(x, scale_factor=0.5, mode=downsample, align_corners=True, recompute_scale_factor=True)
+        self.convs = nn.ModuleList()
+        self.downsamples = nn.ModuleList()
+        in_ch = 3
+        for i in range(downstep):
+            self.convs.append(Conv2dBlock(in_ch, feat_spec[i], residual=True))
+            self.convs.append(Conv2dBlock(feat_spec[i], feat_spec[i], residual=True))
+            if mode == "max":
+                ds = nn.MaxPool2d(2)
+            elif mode == "avg":
+                ds = nn.AvgPool2d(2, 2)
+            else:
+                ds = lambda x : F.interpolate(x, scale_factor=0.5, mode=mode, align_corners=True, recompute_scale_factor=True)
+            self.downsamples.append(ds)
+            in_ch = feat_spec[i]
 
-        self.conv2_1 = Conv2dBlock(32, 64, residual=True)
-        self.conv2_2 = Conv2dBlock(64, 64, residual=True)
-        if downsample == "max":
-            self.downsample2 = nn.MaxPool2d(2)
-        elif downsample == "avg":
-            self.downsample2 = nn.AvgPool2d(2, 2)
-        else:
-            self.downsample2 = lambda x : F.interpolate(x, scale_factor=0.5, mode=downsample, align_corners=True, recompute_scale_factor=True)
+        self.tail_convs = nn.ModuleList()
+        self.tail_convs.append(Conv2dBlock(in_ch, feat_spec[downstep], residual=True))
+        self.tail_convs.append(Conv2dBlock(feat_spec[downstep], feat_spec[downstep], residual=True))
 
-        self.conv3_1 = Conv2dBlock(64, 128, residual=True)
-        self.conv3_2 = Conv2dBlock(128, 128, residual=True)
-        if downsample == "max":
-            self.downsample3 = nn.MaxPool2d(2)
-        elif downsample == "avg":
-            self.downsample3 = nn.AvgPool2d(2, 2)
-        else:
-            self.downsample3 = lambda x : F.interpolate(x, scale_factor=0.5, mode=downsample, align_corners=True, recompute_scale_factor=True)
+        self.gavg_pool = nn.AdaptiveAvgPool2d((1,1))
+        self.final_linear = nn.Sequential(
+            nn.Linear(feat_spec[downstep], latent_dim),
+            nn.LeakyReLU(),
+        )
 
-        self.conv4_1 = Conv2dBlock(128, 256, residual=True)
-        self.conv4_2 = Conv2dBlock(256, 256, residual=True)
-        if downsample == "max":
-            self.downsample4 = nn.MaxPool2d(2)
-        elif downsample == "avg":
-            self.downsample4 = nn.AvgPool2d(2, 2)
-        else:
-            self.downsample4 = lambda x : F.interpolate(x, scale_factor=0.5, mode=downsample, align_corners=True, recompute_scale_factor=True)
-
-        self.conv5_1 = Conv2dBlock(256, 512, residual=True)
-        self.conv5_2 = Conv2dBlock(512, 512, residual=True)
+    def get_output_channels(self):
+        return self.out_channels
 
     def forward(self, x):
-        x = self.conv1_1(x)
-        x = self.conv1_2(x)
-        feat1 = x
-        x = self.downsample1(x)
+        interm_feat = []
+        for conv1, conv2, downsample in zip(self.convs[::2], self.convs[1::2], self.downsamples):
+            x = conv1(x)
+            x = conv2(x)
+            interm_feat.append(x)
+            x = downsample(x)
+        
+        for conv1, conv2 in zip(self.tail_convs[::2], self.tail_convs[1::2]):
+            x = conv1(x)
+            x = conv2(x)
+        interm_feat.append(x)
+        interm_feat.reverse()
+        x = self.gavg_pool(x).view(x.shape[0:2])
+        x = self.final_linear(x)
 
-        x = self.conv2_1(x)
-        x = self.conv2_2(x)
-        feat2 = x
-        x = self.downsample2(x)
+        return x, interm_feat
 
-        x = self.conv3_1(x)
-        x = self.conv3_2(x)
-        feat3 = x
-        x = self.downsample3(x)
-
-        x = self.conv4_1(x)
-        x = self.conv4_2(x)
-        feat4 = x
-        x = self.downsample4(x)
-
-        x = self.conv5_1(x)
-        x = self.conv5_2(x)
-        feat5 = x
-
-        return x, [feat5, feat4, feat3, feat2, feat1]
+if __name__ == '__main__':
+    import torch
+    m = EncoderDefault(downscale=8, latent_dim=1024).cuda()
+    img = torch.randn(2, 3, 32, 32).cuda()
+    output, features = m(img)
+    print(output.shape, m.get_output_channels())
+    for t in features:
+        print(t.shape)

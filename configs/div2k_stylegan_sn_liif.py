@@ -38,20 +38,22 @@ epoch=200
 
 optimizer = dict(
     type='Adam',
-    lr=1e-4
+    lr=5e-4
 )
 
 encoder=dict(
     type='StyleGAN2',
-    arch=dict(type="EncoderDefault", downsample="avg"),
+    arch=dict(type="EncoderDefault", downscale=16, latent_dim=512, mode="avg"),
     size=64,
     style_dim=512,
-    rgb_dim=32
+    rgb_dim=64
 )
 
 model = dict(
     type='LIIF',
-    imnet_in_dim=32,
+    imnet_in_dim=64,
+    mlp_dim=256,
+    n_mlp=4,
     use_pos_encoding=False,
 )
 
