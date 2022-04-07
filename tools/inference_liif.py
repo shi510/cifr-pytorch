@@ -13,36 +13,29 @@ from torch_ema import ExponentialMovingAverage
 from cifr.core.config import Config
 from cifr.models.builder import build_architecture
 from cifr.models.arch.utils import make_coord
+from tools.utils import query_all_pixels
+from tools.utils import add_img_plot
 
 
 WORK_DIR = './work_dir'
 
-def add_img_plot(fig, img, title, rows, cols, num):
-    img = (img.detach().cpu().numpy() * 255).astype(np.uint8)
-    img = img.transpose((1, 2, 0))
-    ax = fig.add_subplot(rows, cols, num)
-    ax.imshow(img)
-    ax.set_title(title, size=25)
-    ax.axis("off")
+def generate_continuous_zoomin_bboxes(w, h, roi):
+    x1, y1, x2, y2 = roi
 
-@torch.no_grad()
-def query_all_pixels(encoder, model, lr, coord, cell, bsize):
-    feature = encoder(lr)
-    n = coord.shape[1]
-    ql = 0
-    preds = []
-    while ql < n:
-        qr = min(ql + bsize, n)
-        pred = model(lr, feature, coord[:, ql: qr, :], cell[:, ql: qr, :])
-        preds.append(pred)
-        ql = qr
-    pred = torch.cat(preds, dim=1)
-    pred.clamp_(0, 1)
-    ih, iw = lr.shape[-2:]
-    s = math.sqrt(coord.shape[1] / (ih * iw))
-    shape = [lr.shape[0], round(ih * s), round(iw * s), 3]
-    pred = pred.view(*shape).permute(0, 3, 1, 2).contiguous()
-    return pred
+    lt_a = y1/x1
+    rb_a = (h-y2)/(w-x2)
+
+    lt_d = math.sqrt(y1**2+x1**2)
+    rb_d = math.sqrt((h-y2)**2+(w-x2)**2)
+
+    max_idx = np.array([lt_d, rb_d]).argmax()
+    x_range = np.array([x1, w-x2], dtype=np.int32)[max_idx]
+
+    x1s = np.linspace(0, x1, x_range)
+    y1s = np.clip(x1s*lt_a, 0, h-1)
+    x2s = np.linspace(x2, w, x_range)[::-1]
+    y2s = np.clip(x2s*rb_a + h*(1-rb_a), 0, h-1)
+    return np.stack([x1s, y1s, x2s, y2s], axis=1).astype(np.uint32)
 
 def resize_fn(img, size):
     return transforms.ToTensor()(
@@ -66,6 +59,7 @@ def inference(args, config):
     img = img.convert("RGB")
     img = transforms.ToTensor()(img)
     lr_img = resize_fn(img, (64, 64)).unsqueeze(0).cuda()
+    lr_img = (lr_img - 0.5) / 0.5
 
     config_name = os.path.splitext(os.path.basename(args.config))[0]
     os.makedirs(f'{WORK_DIR}/{config_name}/eval', exist_ok=True)

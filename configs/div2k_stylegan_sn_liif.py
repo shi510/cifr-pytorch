@@ -19,7 +19,7 @@ train_dataset = dict(
     inp_size=64,
     scale_max=4,
     augment=True,
-    sample_q=1024,
+    sample_q=2048,
 )
 
 test_dataset = dict(
@@ -38,7 +38,7 @@ epoch=200
 
 optimizer = dict(
     type='Adam',
-    lr=5e-4
+    lr=1e-4
 )
 
 encoder=dict(

@@ -80,6 +80,8 @@ class SRImplicitDownsampled(torch.utils.data.Dataset):
         cell[:, 0] *= 2 / crop_hr.shape[-2]
         cell[:, 1] *= 2 / crop_hr.shape[-1]
 
+        crop_lr = (crop_lr - 0.5) / 0.5
+        hr_rgb = (hr_rgb - 0.5) / 0.5
         return {
             'inp': crop_lr,
             'coord': hr_coord,

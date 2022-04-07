@@ -32,11 +32,9 @@ class SRFixedDownsampled(torch.utils.data.Dataset):
 
         w_lr = self.inp_size
         w_hr = round(w_lr * self.scale)
-
         x0 = random.randint(0, img.shape[-2] - w_hr)
         y0 = random.randint(0, img.shape[-1] - w_hr)
         real = img[:, x0: x0 + w_hr, y0: y0 + w_hr]
-
         fake_lr = resize_fn(real, w_lr)
 
         coord, _ = to_pixel_samples(real.contiguous())
@@ -45,6 +43,8 @@ class SRFixedDownsampled(torch.utils.data.Dataset):
         cell[:, 0] *= 2 / real.shape[-2]
         cell[:, 1] *= 2 / real.shape[-1]
 
+        fake_lr = (fake_lr - 0.5) / 0.5
+        real = (real - 0.5) / 0.5
         return {
             'lr': fake_lr,
             'coord': coord,

@@ -1,14 +1,11 @@
 import argparse
 import os
-import math
-from re import M
 
 import torch
-import torch.nn.functional as F
-import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data.distributed import DistributedSampler
 from torch import distributed as dist
+from torch import optim
 from tqdm import tqdm
 from torch_ema import ExponentialMovingAverage
 
@@ -17,6 +14,11 @@ from cifr.models.builder import build_architecture, build_optimizer, build_datas
 from cifr.models.builder import build_discriminator
 from cifr.models.losses.contextual_loss import ContextualLoss, ContextualBilateralLoss
 from cifr.models.losses.gradient_norm import normalize_gradient
+from cifr.models.losses.gan_loss import d_logistic_loss
+from cifr.models.losses.gan_loss import g_nonsaturating_loss
+from tools.utils import query_all_pixels
+from tools.utils import requires_grad
+from tools.utils import save_pred_img
 
 
 WORK_DIR = './work_dir'
@@ -58,64 +60,6 @@ def reduce_loss_dict(loss_dict):
 
     return reduced_losses
 
-def add_img_plot(fig, img, title, rows, cols, num):
-    img = (img.detach().cpu().numpy() * 255).astype(np.uint8)
-    img = img.transpose((1, 2, 0))
-    ax = fig.add_subplot(rows, cols, num)
-    ax.imshow(img)
-    ax.set_title(title, size=25)
-    ax.axis("off")
-
-def requires_grad(model, flag=True):
-    for p in model.parameters():
-        p.requires_grad = flag
-
-def query_all_pixels(encoder, model, lr, coord, cell, bsize):
-    feature = encoder(lr)
-    n = coord.shape[1]
-    ql = 0
-    preds = []
-    while ql < n:
-        qr = min(ql + bsize, n)
-        pred = model(lr, feature, coord[:, ql: qr, :], cell[:, ql: qr, :])
-        preds.append(pred)
-        ql = qr
-    pred = torch.cat(preds, dim=1)
-    pred.clamp_(0, 1)
-    ih, iw = lr.shape[-2:]
-    s = math.sqrt(coord.shape[1] / (ih * iw))
-    shape = [lr.shape[0], round(ih * s), round(iw * s), 3]
-    pred = pred.view(*shape).permute(0, 3, 1, 2).contiguous()
-    return pred
-
-@torch.no_grad()
-def save_pred_img(encoder, model, data_loader, img_path, fig, rows, cols):
-    it = iter(data_loader)
-    for i in range(20):
-        test_batch = it.next()
-        inp = test_batch['inp'].cuda()
-        coord = test_batch['coord'].cuda()
-        cell = test_batch['cell'].cuda()
-        gt = test_batch['gt'].cuda()
-        pred = query_all_pixels(encoder, model, inp, coord, cell, 1024)
-        gt = gt.view([pred.shape[0], pred.shape[2], pred.shape[3], pred.shape[1]])
-        gt = gt.permute(0, 3, 1, 2).contiguous()
-        add_img_plot(fig, inp[0], f'Input', rows, cols, i*3+1)
-        add_img_plot(fig, pred[0], f'Predict', rows, cols, i*3+2)
-        add_img_plot(fig, gt[0], f'GT', rows, cols, i*3+3)
-    plt.tight_layout()
-    plt.savefig(img_path, bbox_inches='tight')
-    plt.clf()
-
-def d_logistic_loss(real_pred, fake_pred):
-    real_loss = F.softplus(-real_pred)
-    fake_loss = F.softplus(fake_pred)
-    return real_loss.mean() + fake_loss.mean()
-
-def g_nonsaturating_loss(fake_pred):
-    loss = F.softplus(-fake_pred).mean()
-    return loss
-
 def train(args, config, device):
     model = build_architecture(config.model).to(device)
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
@@ -152,6 +96,9 @@ def train(args, config, device):
     optim_g = build_optimizer(config.optimizer)
     config.optimizer.update({'params': disc.parameters()})
     optim_d = build_optimizer(config.optimizer)
+
+    scheduler_g = optim.lr_scheduler.StepLR(optim_g, step_size=50, gamma=0.5)
+    scheduler_d = optim.lr_scheduler.StepLR(optim_d, step_size=50, gamma=0.5)
 
     model_ema = ExponentialMovingAverage(model.parameters(), decay=0.995)
     encoder_ema = ExponentialMovingAverage(encoder.parameters(), decay=0.995)
@@ -275,6 +222,8 @@ def train(args, config, device):
                 loss_str += f' g_ctx: {ctx_loss:.4f}'
                 loss_str += f' query_l1: {query_l1_loss:.4f}'
                 iter_pbar.set_description(loss_str)
+        scheduler_g.step()
+        scheduler_d.step()
         if dist.get_rank() == 0:
             torch.save(
                 {
